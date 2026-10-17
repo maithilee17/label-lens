@@ -31,16 +31,18 @@ export async function processScan(req, res, next) {
     const originalCandidateValues = {
       name: ocrResult.detectedName || '',
       brand: ocrResult.detectedBrand || '',
-      category: 'food_beverage',
+      category: ocrResult.detectedCategory || 'food_beverage',
       manufacturingDate: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.parsedDate : null,
       manufacturingDatePrecision: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.precision : 'unknown',
       manufacturingDateRaw: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.rawText : '',
       printedExpiryDate: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.parsedDate : null,
       printedExpiryDatePrecision: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.precision : 'unknown',
       printedExpiryDateRaw: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.rawText : '',
+      isExpiryCalculated: Boolean(verification.primaryExpiryCandidate?.isCalculated),
       shelfLifeMonths: ocrResult.shelfLife ? ocrResult.shelfLife.months : null,
       shelfLifeDuration: ocrResult.shelfLife ? ocrResult.shelfLife.raw : '',
-      afterOpeningDurationMonths: ocrResult.pao ? ocrResult.pao.months : null
+      afterOpeningDurationMonths: ocrResult.pao ? ocrResult.pao.months : null,
+      notes: ocrResult.storageInstructions || ''
     };
 
     // 4. Save ScanHistory record (immutable original OCR record)
@@ -270,16 +272,18 @@ export async function rescan(req, res, next) {
     const newCandidateValues = {
       name: ocrResult.detectedName || scan.originalCandidateValues?.name || '',
       brand: ocrResult.detectedBrand || scan.originalCandidateValues?.brand || '',
-      category: scan.originalCandidateValues?.category || 'food_beverage',
+      category: ocrResult.detectedCategory || scan.originalCandidateValues?.category || 'food_beverage',
       manufacturingDate: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.parsedDate : null,
       manufacturingDatePrecision: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.precision : 'unknown',
       manufacturingDateRaw: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.rawText : '',
       printedExpiryDate: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.parsedDate : null,
       printedExpiryDatePrecision: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.precision : 'unknown',
       printedExpiryDateRaw: verification.primaryExpiryCandidate ? verification.primaryExpiryCandidate.rawText : '',
+      isExpiryCalculated: Boolean(verification.primaryExpiryCandidate?.isCalculated),
       shelfLifeMonths: ocrResult.shelfLife ? ocrResult.shelfLife.months : null,
       shelfLifeDuration: ocrResult.shelfLife ? ocrResult.shelfLife.raw : '',
-      afterOpeningDurationMonths: ocrResult.pao ? ocrResult.pao.months : null
+      afterOpeningDurationMonths: ocrResult.pao ? ocrResult.pao.months : null,
+      notes: ocrResult.storageInstructions || scan.originalCandidateValues?.notes || ''
     };
 
     scan.originalOcrText = ocrResult.text;

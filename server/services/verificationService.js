@@ -1,42 +1,17 @@
 /**
  * Verification Service for LabelLens
- * Assesses OCR results, image quality, and date candidate validity
- * to assign an honest verification status and surface actionable warnings.
+ * Evaluates OCR results, image quality, and date candidate validity
+ * to assign an honest verification status, calculate shelf-life deadlines,
+ * and surface actionable warnings without dropping readable information.
  */
 
 import { checkExpiryDiscrepancy, calculateShelfLifeDeadline } from './expiryService.js';
 
-export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
+export function evaluateVerificationStatus({ imageQuality = {}, ocrResult = {} }) {
   const warnings = [...(imageQuality.warnings || [])];
   const candidates = ocrResult.candidates || [];
-  const shelfLife = ocrResult.shelfLife;
-  const pao = ocrResult.pao;
-
-  // 1. Check for poor image quality
-  if (imageQuality.overallRating === 'poor') {
-    return {
-      status: 'poor_image_quality',
-      statusLabel: 'Poor Image Quality',
-      confidenceLevel: 'Low',
-      primaryExpiryCandidate: null,
-      primaryMfgCandidate: null,
-      warnings: [...warnings, 'Image quality is too low for reliable automated detection. Please verify or re-photograph.'],
-      requiresUserConfirmation: true
-    };
-  }
-
-  // 2. No dates found
-  if (candidates.length === 0 && !shelfLife && !pao) {
-    return {
-      status: 'no_date_found',
-      statusLabel: 'No Date Found',
-      confidenceLevel: 'None',
-      primaryExpiryCandidate: null,
-      primaryMfgCandidate: null,
-      warnings: [...warnings, 'No manufacturing or expiry dates could be detected in this image. Manual entry is required.'],
-      requiresUserConfirmation: true
-    };
-  }
+  const shelfLife = ocrResult.shelfLife || null;
+  const pao = ocrResult.pao || null;
 
   // Group candidates by type
   const expCandidates = candidates.filter(c => c.type === 'exp');
@@ -46,8 +21,60 @@ export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
   let primaryExpiryCandidate = expCandidates[0] || null;
   let primaryMfgCandidate = mfgCandidates[0] || null;
 
+  // If no exp candidate found, check unknown candidates
+  if (!primaryExpiryCandidate && unknownCandidates.length > 0) {
+    if (unknownCandidates.length === 1 && !primaryMfgCandidate) {
+      primaryExpiryCandidate = unknownCandidates[0];
+      warnings.push('Date detected without explicit "EXP" prefix. Please verify whether this is an expiry date.');
+    } else if (unknownCandidates.length >= 2) {
+      warnings.push('Multiple unlabeled dates detected. Please verify which is MFG vs EXP.');
+    }
+  }
+
+  // 1. Unusable Image Check (no readable text AND no dates found)
+  if (candidates.length === 0 && !shelfLife && !pao) {
+    const isVeryPoorQuality = imageQuality.overallRating === 'poor' || (ocrResult.confidence < 25 && (!ocrResult.text || ocrResult.text.length < 15));
+    if (isVeryPoorQuality) {
+      return {
+        status: 'unusable_image',
+        statusLabel: 'Unreadable Label',
+        confidenceLevel: 'None',
+        primaryExpiryCandidate: null,
+        primaryMfgCandidate: null,
+        calculatedExpiry: null,
+        shelfLife: null,
+        pao: null,
+        warnings: [
+          ...warnings,
+          "We couldn't read the product label clearly. Please upload a sharper, well-lit, close-up image with the text in focus, or enter product details manually."
+        ],
+        requiresUserConfirmation: true
+      };
+    }
+
+    return {
+      status: 'no_date_found',
+      statusLabel: 'No Date Found',
+      confidenceLevel: 'None',
+      primaryExpiryCandidate: null,
+      primaryMfgCandidate: null,
+      calculatedExpiry: null,
+      shelfLife: null,
+      pao: null,
+      warnings: [...warnings, 'No manufacturing or expiry dates could be detected. Manual entry is required.'],
+      requiresUserConfirmation: true
+    };
+  }
+
+  // 2. Usable but Imperfect Image (Low Quality, but OCR found readable candidates!)
+  // In accordance with guidelines: do NOT discard candidates solely because overallRating === 'poor'
+  let hasLowQualityWarning = false;
+  if (imageQuality.overallRating === 'poor' || imageQuality.isBlurry || imageQuality.isLowResolution) {
+    hasLowQualityWarning = true;
+    warnings.push('Image quality was imperfect. Extracted values should be carefully reviewed against the physical package.');
+  }
+
   // 3. Check for conflicting expiry dates
-  // If multiple distinct dates are labeled as EXP
   let hasConflictingDates = false;
   if (expCandidates.length > 1) {
     const dates = expCandidates.map(c => c.parsedDate.toISOString().substring(0, 10));
@@ -58,26 +85,14 @@ export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
     }
   }
 
-  // If no exp candidate found, check unknown candidates if any
-  if (!primaryExpiryCandidate && unknownCandidates.length > 0) {
-    // If only one unknown candidate exists and no mfg candidate, suggest it as potential expiry
-    if (unknownCandidates.length === 1 && !primaryMfgCandidate) {
-      primaryExpiryCandidate = unknownCandidates[0];
-      warnings.push('Date detected without explicit "EXP" prefix. Please verify whether this is an expiry date.');
-    } else if (unknownCandidates.length >= 2) {
-      hasConflictingDates = true;
-      warnings.push('Multiple unlabelled dates detected. Please assign which date is MFG vs EXP.');
-    }
-  }
-
-  // Ambiguity check
+  // 4. Ambiguity check
   if (primaryExpiryCandidate?.isAmbiguous) {
     warnings.push(
       `Ambiguous date format: "${primaryExpiryCandidate.rawText}" could mean ${primaryExpiryCandidate.day}/${primaryExpiryCandidate.month} or ${primaryExpiryCandidate.month}/${primaryExpiryCandidate.day}.`
     );
   }
 
-  // Date sequence consistency check: Expiry cannot precede Manufacturing date
+  // 5. Sequence consistency: Expiry cannot precede Manufacturing date
   if (primaryExpiryCandidate?.parsedDate && primaryMfgCandidate?.parsedDate) {
     if (new Date(primaryExpiryCandidate.parsedDate).getTime() < new Date(primaryMfgCandidate.parsedDate).getTime()) {
       hasConflictingDates = true;
@@ -85,19 +100,30 @@ export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
     }
   }
 
-  // Shelf-life consistency check
+  // 6. Shelf-life calculation
   let calculatedExpiry = null;
-  if (primaryMfgCandidate && shelfLife) {
+  if (primaryMfgCandidate && shelfLife && shelfLife.months > 0) {
     calculatedExpiry = calculateShelfLifeDeadline(primaryMfgCandidate.parsedDate, shelfLife.months);
+
     if (primaryExpiryCandidate && calculatedExpiry) {
       const discrepancy = checkExpiryDiscrepancy(primaryExpiryCandidate.parsedDate, calculatedExpiry);
       if (discrepancy?.hasDiscrepancy) {
         warnings.push(discrepancy.message);
       }
+    } else if (!primaryExpiryCandidate && calculatedExpiry) {
+      // Inferred expiry date from explicit shelf life + MFG date
+      primaryExpiryCandidate = {
+        parsedDate: calculatedExpiry,
+        precision: primaryMfgCandidate.precision,
+        rawText: `${shelfLife.raw} from MFG`,
+        isCalculated: true,
+        confidence: 0.85
+      };
+      warnings.push(`Expiry date calculated as ${shelfLife.months} months from Manufacturing Date (${primaryMfgCandidate.rawText}).`);
     }
   }
 
-  // Determine final status
+  // 7. Determine Final Verification Status
   let status = 'needs_verification';
   let statusLabel = 'Needs Verification';
   let confidenceLevel = 'Moderate';
@@ -106,10 +132,15 @@ export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
     status = 'conflicting_dates';
     statusLabel = 'Conflicting Dates';
     confidenceLevel = 'Low';
+  } else if (hasLowQualityWarning) {
+    status = 'needs_verification';
+    statusLabel = 'Low Quality - Verify';
+    confidenceLevel = 'Low';
   } else if (
     primaryExpiryCandidate &&
     !primaryExpiryCandidate.isAmbiguous &&
-    ocrResult.confidence >= 75 &&
+    !primaryExpiryCandidate.isCalculated &&
+    (ocrResult.confidence || 0) >= 70 &&
     imageQuality.overallRating === 'good' &&
     warnings.length === 0
   ) {
@@ -128,6 +159,6 @@ export function evaluateVerificationStatus({ imageQuality, ocrResult }) {
     shelfLife,
     pao,
     warnings,
-    requiresUserConfirmation: true // User must always confirm per core safety rule!
+    requiresUserConfirmation: true // Core safety rule: user must review and confirm before saving!
   };
 }

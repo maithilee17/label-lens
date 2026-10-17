@@ -17,6 +17,7 @@ build/
 # Uploads & Temp files
 server/uploads/*
 !server/uploads/.gitkeep
+*.traineddata
 
 # Logs
 npm-debug.log*
