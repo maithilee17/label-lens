@@ -31,7 +31,9 @@ export async function processScan(req, res, next) {
     const originalCandidateValues = {
       name: ocrResult.detectedName || '',
       brand: ocrResult.detectedBrand || '',
-      category: ocrResult.detectedCategory || 'food_beverage',
+      category: ocrResult.detectedCategory || 'other',
+      batchNumber: ocrResult.batchNumber || '',
+      netWeight: ocrResult.netWeight || '',
       manufacturingDate: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.parsedDate : null,
       manufacturingDatePrecision: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.precision : 'unknown',
       manufacturingDateRaw: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.rawText : '',
@@ -192,8 +194,10 @@ export async function confirmScan(req, res, next) {
     const product = await Product.create({
       userId: req.user._id,
       name: name.trim(),
-      category: category || 'food_beverage',
+      category: category || 'other',
       brand: brand ? brand.trim() : '',
+      batchNumber: req.body.batchNumber ? req.body.batchNumber.trim() : '',
+      netWeight: req.body.netWeight ? req.body.netWeight.trim() : '',
       imagePath: scan.originalImagePath,
       manufacturingDate: manufacturingDate ? new Date(manufacturingDate) : null,
       manufacturingDatePrecision,
@@ -272,7 +276,9 @@ export async function rescan(req, res, next) {
     const newCandidateValues = {
       name: ocrResult.detectedName || scan.originalCandidateValues?.name || '',
       brand: ocrResult.detectedBrand || scan.originalCandidateValues?.brand || '',
-      category: ocrResult.detectedCategory || scan.originalCandidateValues?.category || 'food_beverage',
+      category: ocrResult.detectedCategory || scan.originalCandidateValues?.category || 'other',
+      batchNumber: ocrResult.batchNumber || scan.originalCandidateValues?.batchNumber || '',
+      netWeight: ocrResult.netWeight || scan.originalCandidateValues?.netWeight || '',
       manufacturingDate: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.parsedDate : null,
       manufacturingDatePrecision: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.precision : 'unknown',
       manufacturingDateRaw: verification.primaryMfgCandidate ? verification.primaryMfgCandidate.rawText : '',

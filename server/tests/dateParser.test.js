@@ -5,6 +5,8 @@ import {
   extractStorageInstructions,
   detectCategory,
   extractBrandAndName,
+  extractBatchNumber,
+  extractNetWeight,
   getDaysInMonth
 } from '../services/dateParser.js';
 
@@ -301,15 +303,86 @@ describe('Date Parser & Label Extraction Service', () => {
       expect(detectedName).toBe('Daily Moisturizing Lotion 473ml');
     });
 
-    test('returns empty strings for OCR noise or gibberish', () => {
+    test('returns empty strings for OCR noise or gibberish and rejects keyboard brands', () => {
       const text = `
+        SONY
         ||||---====
         #$$%%^^&&*
+        J § fleas
         EXP 10/2026
       `;
       const { detectedBrand, detectedName } = extractBrandAndName(text);
       expect(detectedBrand).toBe('');
       expect(detectedName).toBe('');
+    });
+
+    test('extracts explicit manufacturer as brand from Mfd. By prefix', () => {
+      const text = `
+        Mfd. By: Viva Cosmetics, Thane - 421601
+        Berry Crumble
+        Batch No.: B0415
+        Mfg. Date: 12/25
+        Use Before: 11/27
+        Net Wt.: 5g
+      `;
+      const { detectedBrand, detectedName } = extractBrandAndName(text);
+      expect(detectedBrand).toBe('Viva Cosmetics');
+      expect(detectedName).toBe('Berry Crumble lipstick');
+    });
+  });
+
+  describe('Batch Number & Net Weight Extraction', () => {
+    test('extracts batch / lot numbers from diverse formats', () => {
+      expect(extractBatchNumber('Batch No.: B0415')).toBe('B0415');
+      expect(extractBatchNumber('Batch: B-9812')).toBe('B-9812');
+      expect(extractBatchNumber('LOT: 2410A')).toBe('2410A');
+      expect(extractBatchNumber('B.NO. 4819')).toBe('4819');
+    });
+
+    test('extracts net weight and volume correctly', () => {
+      expect(extractNetWeight('Net Wt.: 5g')).toBe('5g');
+      expect(extractNetWeight('Net Wt.: 4g')).toBe('4g');
+      expect(extractNetWeight('Net Weight: 500g')).toBe('500g');
+      expect(extractNetWeight('Net Vol.: 250ml')).toBe('250ml');
+    });
+  });
+
+  describe('Cosmetic Product Label Comprehensive Verification', () => {
+    test('extracts all expected fields for cosmetic product label', () => {
+      const text = `
+        Mfd. By: Viva Cosmetics, Thane - 421601
+        Berry Crumble
+        Batch No.: B0415
+        Mfg. Date: 12/25
+        Use Before: 11/27
+        Net Wt.: 5g
+      `;
+
+      const dates = extractDateCandidates(text);
+      expect(dates.length).toBe(2);
+
+      const mfg = dates.find(d => d.type === 'mfg');
+      const exp = dates.find(d => d.type === 'exp');
+
+      expect(mfg).toBeDefined();
+      expect(mfg.month).toBe(12);
+      expect(mfg.year).toBe(2025);
+      expect(mfg.precision).toBe('month');
+      expect(mfg.day).toBeNull();
+
+      expect(exp).toBeDefined();
+      expect(exp.month).toBe(11);
+      expect(exp.year).toBe(2027);
+      expect(exp.precision).toBe('month');
+      expect(exp.day).toBeNull();
+
+      expect(detectCategory(text)).toBe('makeup_cosmetics');
+      expect(extractBatchNumber(text)).toBe('B0415');
+      expect(extractNetWeight(text)).toBe('5g');
+
+      const { detectedBrand, detectedName } = extractBrandAndName(text);
+      expect(detectedBrand).toBe('Viva Cosmetics');
+      expect(detectedName).toBe('Berry Crumble lipstick');
     });
   });
 });

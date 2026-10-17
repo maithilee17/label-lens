@@ -13,6 +13,8 @@ node_modules/
 # Build output
 dist/
 build/
+.vite/
+client/.vite/
 
 # Uploads & Temp files
 server/uploads/*

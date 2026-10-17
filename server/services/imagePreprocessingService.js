@@ -84,6 +84,13 @@ export async function preprocessForOCR(filePathOrBuffer, variant = 'standard') {
           .toFormat('png')
           .toBuffer();
 
+      case 'color_enhanced':
+        // For white/light typography printed on colored or circular substrates (e.g. terracotta, pink, gold)
+        return await pipeline
+          .sharpen({ sigma: 0.8, m1: 0.5, m2: 1.5 })
+          .toFormat('png')
+          .toBuffer();
+
       case 'standard':
       default:
         // Balanced enhancement for typical commercial labels
@@ -100,6 +107,129 @@ export async function preprocessForOCR(filePathOrBuffer, variant = 'standard') {
     return typeof filePathOrBuffer === 'string'
       ? await sharp(filePathOrBuffer).toBuffer()
       : filePathOrBuffer;
+  }
+}
+
+/**
+ * Detects candidate label regions and crops in an image.
+ * Separates foreground product labels from background desks, screens, and keyboards.
+ * @param {string|Buffer} filePathOrBuffer
+ * @returns {Promise<Array<{name: string, left: number, top: number, width: number, height: number}>>}
+ */
+export async function detectLabelCrops(filePathOrBuffer) {
+  try {
+    const meta = await sharp(filePathOrBuffer).metadata();
+    const width = meta.width || 0;
+    const height = meta.height || 0;
+
+    const crops = [];
+
+    // 1. Full image crop
+    crops.push({
+      name: 'full_image',
+      left: 0,
+      top: 0,
+      width,
+      height
+    });
+
+    // If image has enough dimensions, add smart label subcrops
+    if (width >= 200 && height >= 200) {
+      // 2. Focused center foreground crop
+      // Handheld products or items photographed on a table/desk/keyboard have the product in center
+      // This cuts off background monitors, screen bezels, and laptop keyboards
+      const focusedW = Math.round(width * 0.70);
+      const focusedH = Math.round(height * 0.48);
+      crops.push({
+        name: 'focused_center',
+        left: Math.round(width * 0.15),
+        top: Math.round(height * 0.22),
+        width: Math.min(width, focusedW),
+        height: Math.min(height, focusedH)
+      });
+
+      // 3. Inner core / circular label crop
+      // For bottle caps, jars, lipstick ends, or small circular stickers
+      const side = Math.round(Math.min(width * 0.44, height * 0.32));
+      crops.push({
+        name: 'inner_core_circle',
+        left: Math.round(width * 0.23),
+        top: Math.round(height * 0.29),
+        width: side,
+        height: side
+      });
+    }
+
+    return crops;
+  } catch (err) {
+    console.error('[Preprocessing] Error detecting label crops:', err.message);
+    return [{ name: 'full_image', left: 0, top: 0, width: 0, height: 0 }];
+  }
+}
+
+/**
+ * Extracts and enhances a specific label crop.
+ * Upscales small circular or curved labels to optimal OCR resolution with Lanczos3.
+ * @param {string|Buffer} filePathOrBuffer
+ * @param {{left: number, top: number, width: number, height: number}} cropDef
+ * @param {string} variant ('standard' | 'color_enhanced' | 'high_contrast' | 'rotate10')
+ */
+export async function getCropBuffer(filePathOrBuffer, cropDef, variant = 'standard') {
+  try {
+    let pipeline = sharp(filePathOrBuffer).rotate();
+
+    // If crop is not full image, extract the bounding box
+    if (cropDef.width > 0 && cropDef.height > 0) {
+      pipeline = pipeline.extract({
+        left: cropDef.left,
+        top: cropDef.top,
+        width: cropDef.width,
+        height: cropDef.height
+      });
+    }
+
+    // Adaptive upscale for small crops
+    const targetW = Math.max(900, Math.min(1200, cropDef.width * 2));
+    pipeline = pipeline.resize({
+      width: targetW,
+      fit: 'inside',
+      kernel: sharp.kernel.lanczos3
+    });
+
+    switch (variant) {
+      case 'color_enhanced':
+        return await pipeline
+          .sharpen({ sigma: 0.8, m1: 0.5, m2: 1.5 })
+          .toFormat('png')
+          .toBuffer();
+
+      case 'high_contrast':
+        return await pipeline
+          .grayscale()
+          .median(3)
+          .linear(1.3, -20)
+          .toFormat('png')
+          .toBuffer();
+
+      case 'rotate10':
+        return await pipeline
+          .rotate(10, { background: '#ffffff' })
+          .sharpen({ sigma: 0.8, m1: 0.5, m2: 1.5 })
+          .toFormat('png')
+          .toBuffer();
+
+      case 'standard':
+      default:
+        return await pipeline
+          .grayscale()
+          .normalize()
+          .sharpen({ sigma: 0.6, m1: 0.5, m2: 1.0 })
+          .toFormat('png')
+          .toBuffer();
+    }
+  } catch (err) {
+    console.error('[Preprocessing] Error getting crop buffer:', err.message);
+    return null;
   }
 }
 

@@ -77,8 +77,10 @@ export function VerifyDetails() {
   const populateFields = (candidates = {}, fullScan = {}) => {
     setFormData({
       name: candidates.name || '',
-      category: candidates.category || 'food_beverage',
+      category: candidates.category || 'other',
       brand: candidates.brand || '',
+      batchNumber: candidates.batchNumber || fullScan.batchNumber || '',
+      netWeight: candidates.netWeight || fullScan.netWeight || '',
       manufacturingDate: candidates.manufacturingDate
         ? new Date(candidates.manufacturingDate).toISOString().substring(0, 10)
         : '',
@@ -525,6 +527,42 @@ export function VerifyDetails() {
                   value={formData.afterOpeningDurationMonths}
                   onChange={e => setFormData({ ...formData, afterOpeningDurationMonths: e.target.value })}
                   placeholder="e.g. 6 (6M), 12 (12M)"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center">
+                  Batch / Lot No.
+                  {candidateValues.batchNumber && (
+                    <span className="ml-2 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                      Detected
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  value={formData.batchNumber || ''}
+                  onChange={e => setFormData({ ...formData, batchNumber: e.target.value })}
+                  placeholder="e.g. B0415, LOT 921A"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center">
+                  Net Weight / Volume
+                  {candidateValues.netWeight && (
+                    <span className="ml-2 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                      Detected
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  value={formData.netWeight || ''}
+                  onChange={e => setFormData({ ...formData, netWeight: e.target.value })}
+                  placeholder="e.g. 5 g, 500 ml"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>

@@ -25,6 +25,16 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: ''
     },
+    batchNumber: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    netWeight: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     imagePath: {
       type: String,
       default: ''
